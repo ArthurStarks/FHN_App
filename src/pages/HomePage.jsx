@@ -1,59 +1,272 @@
 import { useState, useEffect } from "react";
-import { UserPlus, LogIn, Eye, EyeOff, Lock, Mail } from "lucide-react";
+import { useNavigate, useLocation } from "react-router-dom";
+import { UserPlus, LogIn, Eye, EyeOff, Lock, Mail, User } from "lucide-react";
 
 const HomePage = () => {
   const [authMode, setAuthMode] = useState("login");
   const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     setIsLoaded(true);
-  }, []);
-
-  const handleSignup = () => {
-    setError("");
-
-    if (!email || !password || !confirmPassword) {
-      setError("Veuillez remplir tous les champs.");
-      return;
+    if (location.state?.error) {
+      setError(location.state.error);
+      navigate("/", { replace: true, state: {} });
     }
 
-    if (password !== confirmPassword) {
+    const checkAuth = async () => {
+      try {
+        const token = localStorage.getItem("authToken");
+
+        const headers = {
+          Accept: "application/json",
+        };
+
+        if (token) {
+          headers["Authorization"] = `Bearer ${token}`;
+        }
+
+        const response = await fetch(
+          "https://fhn-backend-2.onrender.com/auth/checkAuth",
+          {
+            method: "GET",
+            credentials: "include",
+            headers: headers,
+          }
+        );
+        console.log("HomePage: Statut de la réponse =", response.status);
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          console.log("HomePage: Détails de l'erreur =", errorData);
+        }
+
+        setIsAuthenticated(response.ok);
+      } catch (err) {
+        console.error("HomePage: Erreur lors de la vérification =", err);
+        setIsAuthenticated(false);
+      }
+    };
+
+    checkAuth();
+  }, [location, navigate]);
+
+  const validateForm = () => {
+    if (
+      !email ||
+      !password ||
+      (authMode === "signup" && (!username || !confirmPassword))
+    ) {
+      setError("Veuillez remplir tous les champs.");
+      return false;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError("Adresse email invalide.");
+      return false;
+    }
+    if (password.length < 8) {
+      setError("Le mot de passe doit contenir au moins 8 caractères.");
+      return false;
+    }
+    if (authMode === "signup" && password !== confirmPassword) {
       setError("Les mots de passe ne correspondent pas.");
-      return;
+      return false;
     }
-
-    // Ici vous pouvez ajouter la logique d'inscription
-    console.log("Inscription avec:", { email, password });
+    return true;
   };
 
-  const handleLogin = () => {
+  const handleSignup = async () => {
     setError("");
+    setSuccess("");
+    setIsLoading(true);
 
-    if (!email || !password) {
-      setError("Veuillez remplir tous les champs.");
+    if (!validateForm()) {
+      setIsLoading(false);
       return;
     }
 
-    // Ici vous pouvez ajouter la logique de connexion
-    console.log("Connexion avec:", { email, password });
+    try {
+      const response = await fetch(
+        "https://fhn-backend-2.onrender.com/auth/register",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({ name: username, email, password }),
+          credentials: "include",
+        }
+      );
+
+      const data = await response.json();
+      if (!response.ok)
+        throw new Error(data.message || "Erreur lors de l'inscription");
+
+      // Store token and user data from response
+      if (data.data) {
+        localStorage.setItem("authToken", data.data.token);
+        localStorage.setItem("nom", data.data.nom || username);
+        localStorage.setItem("email", data.data.email || email);
+        localStorage.setItem("role", data.data.role || "");
+        console.log(
+          "Données utilisateur stockées dans localStorage après inscription"
+        );
+      }
+
+      setSuccess(
+        "Inscription réussie ! Vous serez redirigé automatiquement..."
+      );
+      setEmail("");
+      setUsername("");
+      setPassword("");
+      setConfirmPassword("");
+
+      // Auto redirect after successful signup
+      setTimeout(() => {
+        setIsAuthenticated(true);
+        if (data.data?.role === "parent") {
+          navigate("/tuteur");
+        } else if (
+          data.data?.role === "analyste" ||
+          data.data?.role === "secretaire"
+        ) {
+          navigate("/dashboard");
+        } else {
+          navigate("/utilisateurs"); // Redirection pour admin ou autres rôles
+        }
+      }, 1500);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  // Animation de transition entre les modes
+  const handleLogin = async () => {
+    setError("");
+    setSuccess("");
+    setIsLoading(true);
+
+    if (!validateForm()) {
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        "https://fhn-backend-2.onrender.com/auth/login",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({ email, password }),
+          credentials: "include",
+        }
+      );
+
+      const data = await response.json();
+      console.log("HomePage: Réponse de /login =", data);
+
+      if (!response.ok)
+        throw new Error(data.message || "Erreur lors de la connexion");
+
+      // Store token and user data from response
+      if (data.data) {
+        localStorage.setItem("authToken", data.data.token);
+        localStorage.setItem("nom", data.data.nom || "");
+        localStorage.setItem("email", data.data.email || email);
+        localStorage.setItem("role", data.data.role || "");
+        console.log(
+          "Données utilisateur stockées dans localStorage après connexion"
+        );
+      }
+
+      setSuccess("Connexion réussie !");
+      setEmail("");
+      setPassword("");
+      setIsAuthenticated(true);
+
+      setTimeout(() => {
+        if (data.data?.role === "parent") {
+          navigate("/tuteur");
+        } else if (
+          data.data?.role === "analyste" ||
+          data.data?.role === "secretaire"
+        ) {
+          navigate("/dashboard");
+        } else {
+          navigate("/utilisateurs"); // Redirection pour admin ou autres rôles
+        }
+      }, 500);
+    } catch (err) {
+      console.error("HomePage: Erreur lors de la connexion =", err);
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      const token = localStorage.getItem("authToken");
+      const headers = {};
+
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      await fetch("https://fhn-backend-2.onrender.com/auth/logout", {
+        method: "POST",
+        credentials: "include",
+        headers,
+      });
+
+      // Remove all user data from localStorage
+      localStorage.removeItem("authToken");
+      localStorage.removeItem("nom");
+      localStorage.removeItem("email");
+      localStorage.removeItem("role");
+
+      setIsAuthenticated(false);
+      navigate("/");
+      setSuccess("Déconnexion réussie.");
+    } catch (err) {
+      console.error("Erreur lors de la déconnexion:", err);
+
+      // Disconnect user client-side even if API fails
+      localStorage.removeItem("authToken");
+      localStorage.removeItem("nom");
+      localStorage.removeItem("email");
+      localStorage.removeItem("role");
+      setIsAuthenticated(false);
+      navigate("/");
+    }
+  };
+
   const handleModeChange = (mode) => {
     if (mode === authMode) return;
-
     setIsLoaded(false);
     setTimeout(() => {
       setAuthMode(mode);
       setEmail("");
+      setUsername("");
       setPassword("");
       setConfirmPassword("");
       setError("");
+      setSuccess("");
       setIsLoaded(true);
     }, 300);
   };
@@ -84,7 +297,6 @@ const HomePage = () => {
           </div>
 
           <div className="bg-white rounded-xl shadow-lg p-8 mb-6">
-            {/* Onglets de navigation */}
             <div className="flex mb-8 border-b">
               <div
                 className={`flex-1 text-center py-3 cursor-pointer transition-all ${
@@ -131,11 +343,41 @@ const HomePage = () => {
               </div>
             )}
 
+            {success && (
+              <div className="bg-green-50 text-green-600 p-3 rounded-md mb-4 text-sm">
+                {success}
+              </div>
+            )}
+
             <div className="space-y-4">
+              {authMode === "signup" && (
+                <div>
+                  <label
+                    htmlFor="username"
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                  >
+                    Nom d'utilisateur
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <User size={16} className="text-gray-400" />
+                    </div>
+                    <input
+                      id="username"
+                      type="text"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      className="pl-10 w-full rounded-md border border-gray-300 shadow-sm focus:border-green-500 focus:ring focus:ring-green-200 focus:ring-opacity-50 p-2"
+                      placeholder="Votre nom d'utilisateur"
+                    />
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label
                   htmlFor="email"
-                  className="block text-sm font-medium text-gray-700 mb-1"
+                  className="block text-sm font-medium the-gray-700 mb-1"
                 >
                   Adresse email
                 </label>
@@ -219,15 +461,18 @@ const HomePage = () => {
               </div>
             )}
 
-            <div
+            <button
               onClick={authMode === "login" ? handleLogin : handleSignup}
-              className={`w-full mt-6 py-3 px-4 rounded-md text-white font-medium flex items-center justify-center transition-colors cursor-pointer ${
+              disabled={isLoading}
+              className={`w-full mt-6 py-3 px-4 rounded-md text-white font-medium flex items-center justify-center transition-colors ${
                 authMode === "login"
                   ? "bg-gradient-to-r from-orange-400 to-orange-500 hover:from-orange-500 hover:to-orange-600"
                   : "bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700"
-              }`}
+              } ${isLoading ? "opacity-50 cursor-not-allowed" : ""}`}
             >
-              {authMode === "login" ? (
+              {isLoading ? (
+                "Chargement..."
+              ) : authMode === "login" ? (
                 <>
                   <LogIn size={18} className="mr-2" />
                   Se connecter
@@ -238,21 +483,7 @@ const HomePage = () => {
                   S'inscrire
                 </>
               )}
-            </div>
-          </div>
-
-          <div className="text-center text-gray-500 text-sm mb-8">
-            <p>
-              En utilisant cette plateforme, vous acceptez nos{" "}
-              <span className="text-green-600 hover:underline cursor-pointer">
-                conditions d'utilisation
-              </span>{" "}
-              et notre{" "}
-              <span className="text-green-600 hover:underline cursor-pointer">
-                politique de confidentialité
-              </span>
-              .
-            </p>
+            </button>
           </div>
 
           <div className="text-center text-gray-500 text-sm">
@@ -262,13 +493,39 @@ const HomePage = () => {
                 Contactez-nous
               </span>
             </p>
+            {isAuthenticated && (
+              <button
+                onClick={handleLogout}
+                className="mt-4 text-sm text-orange-500 hover:underline"
+              >
+                Déconnexion
+              </button>
+            )}
           </div>
         </div>
-
-        <div className="text-center text-gray-400 text-sm mt-12">
-          <p>© 2025 Fondation Horizons Nouveaux</p>
-        </div>
       </div>
+      <footer className="bg-white border-t border-gray-200 py-8 mt-12">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center text-sm text-gray-500">
+            <p>© 2025 Fondation Horizons Nouveaux. Tous droits réservés.</p>
+            <p className="mt-2">
+              <span className="inline-flex space-x-4">
+                <a href="#" className="hover:text-gray-700">
+                  Conditions d'utilisation
+                </a>
+                <span className="text-gray-300">|</span>
+                <a href="#" className="hover:text-gray-700">
+                  Politique de confidentialité
+                </a>
+                <span className="text-gray-300">|</span>
+                <a href="#" className="hover:text-gray-700">
+                  Nous contacter
+                </a>
+              </span>
+            </p>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 };

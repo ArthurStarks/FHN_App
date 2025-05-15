@@ -10,21 +10,58 @@ import {
   UserPlus,
   Users,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { UserModal } from "../components/user/userModale";
 
 const UtilisateursPage = () => {
   const [showModal, setShowModal] = useState(false);
   const [users, setUsers] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  // Fonction pour récupérer les utilisateurs
+  const fetchUsers = async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch("https://fhn-backend-2.onrender.com/users", {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("authToken")}`,
+        },
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        throw new Error("Échec de la récupération des utilisateurs");
+      }
+
+      const data = await response.json();
+      console.log("Utilisateurs récupérés:", data.data);
+      setUsers(data.data || []);
+    } catch (error) {
+      console.error("Erreur lors de la récupération des utilisateurs:", error);
+      setError("Impossible de charger les utilisateurs. Veuillez réessayer.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Charger les utilisateurs au montage du composant
+  useEffect(() => {
+    fetchUsers();
+  }, []);
 
   // Fonction pour générer des avatars basés sur les initiales
   const getInitials = (name) => {
     return name
-      .split(" ")
-      .map((n) => n[0])
-      .join("")
-      .toUpperCase();
+      ? name
+          .split(" ")
+          .map((n) => n[0])
+          .join("")
+          .toUpperCase()
+      : "";
   };
 
   // Fonction pour générer une couleur d'arrière-plan basée sur le nom
@@ -37,30 +74,55 @@ const UtilisateursPage = () => {
       "bg-pink-100 text-pink-600",
       "bg-indigo-100 text-indigo-600",
     ];
-    const index = name.charCodeAt(0) % colors.length;
+    const index = name ? name.charCodeAt(0) % colors.length : 0;
     return colors[index];
   };
 
-  const handleAddUser = (newUser) => {
-    setUsers((prevUsers) => {
-      return [...prevUsers, { ...newUser, id: Date.now() }];
-    });
+  // Après l'ajout d'un utilisateur, récupérer la liste mise à jour
+  const handleAddUser = async () => {
+    await fetchUsers();
+    setShowModal(false);
   };
 
-  const handleDeleteUser = (userId) => {
+  // Supprimer un utilisateur et mettre à jour la liste
+  const handleDeleteUser = async (userId) => {
     if (
       window.confirm("Êtes-vous sûr de vouloir supprimer cet utilisateur ?")
     ) {
-      setUsers((prevUsers) => prevUsers.filter((user) => user.id !== userId));
+      try {
+        const response = await fetch(
+          `https://fhn-backend-2.onrender.com/users/${userId}`,
+          {
+            method: "DELETE",
+            headers: {
+              Authorization: `Bearer ${localStorage.getItem("authToken")}`,
+            },
+            credentials: "include",
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error("Échec de la suppression de l'utilisateur");
+        }
+
+        // Récupérer la liste mise à jour
+        fetchUsers();
+      } catch (error) {
+        console.error("Erreur lors de la suppression:", error);
+        alert("Erreur lors de la suppression de l'utilisateur");
+      }
     }
   };
 
   // Filtrer les utilisateurs en fonction du terme de recherche
-  const filteredUsers = users.filter(
-    (user) =>
-      user.nom.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredUsers = users.filter((user) => {
+    const nom = user.nom || ""; // Fallback to empty string
+    const email = user.email || ""; // Fallback to empty string
+    const query = searchTerm.toLowerCase();
+    return (
+      nom.toLowerCase().includes(query) || email.toLowerCase().includes(query)
+    );
+  });
 
   return (
     <main className="p-4 md:p-6 lg:p-8 bg-gray-50 min-h-screen">
@@ -104,13 +166,23 @@ const UtilisateursPage = () => {
             </p>
           </div>
 
-          <button
-            className="bg-green-600 rounded-lg px-4 py-2.5 flex items-center text-sm text-white hover:bg-green-700 transition-all transform hover:scale-105 shadow-sm"
-            onClick={() => setShowModal(true)}
-          >
-            <Plus size={18} className="mr-2" />
-            Nouvel utilisateur
-          </button>
+          <div className="flex gap-2">
+            <button
+              className="bg-gray-100 rounded-lg px-4 py-2.5 flex items-center text-sm text-gray-600 hover:bg-gray-200 transition-all"
+              onClick={fetchUsers}
+              disabled={isLoading}
+            >
+              Actualiser
+            </button>
+
+            <button
+              className="bg-green-600 rounded-lg px-4 py-2.5 flex items-center text-sm text-white hover:bg-green-700 transition-all transform hover:scale-105 shadow-sm"
+              onClick={() => setShowModal(true)}
+            >
+              <Plus size={18} className="mr-2" />
+              Nouvel utilisateur
+            </button>
+          </div>
         </div>
 
         {/* Barre de recherche et filtres */}
@@ -136,8 +208,24 @@ const UtilisateursPage = () => {
           </div>
         </div>
 
+        {/* Message d'erreur */}
+        {error && (
+          <div className="p-4 bg-red-50 border-b border-red-100">
+            <p className="text-red-600 text-sm">{error}</p>
+          </div>
+        )}
+
+        {/* État de chargement */}
+        {isLoading && !error && (
+          <div className="p-12 flex flex-col items-center justify-center">
+            <h3 className="text-lg font-medium text-gray-800 mb-2">
+              Chargement des utilisateurs...
+            </h3>
+          </div>
+        )}
+
         {/* Liste des utilisateurs */}
-        {filteredUsers.length > 0 ? (
+        {!isLoading && !error && filteredUsers.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead>
@@ -223,7 +311,7 @@ const UtilisateursPage = () => {
               </tbody>
             </table>
           </div>
-        ) : (
+        ) : !isLoading && !error ? (
           <div className="p-12 flex flex-col items-center justify-center">
             <div className="w-20 h-20 rounded-full bg-gray-100 flex items-center justify-center mb-4">
               <Users size={32} className="text-gray-400" />
@@ -244,10 +332,10 @@ const UtilisateursPage = () => {
               Ajouter un utilisateur
             </button>
           </div>
-        )}
+        ) : null}
 
-        {/* Pied de page avec pagination (à implémenter si nécessaire) */}
-        {users.length > 0 && (
+        {/* Pied de page avec pagination */}
+        {!isLoading && !error && users.length > 0 && (
           <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex justify-between items-center">
             <div className="text-sm text-gray-500">
               Affichage de {filteredUsers.length} sur {users.length}{" "}
